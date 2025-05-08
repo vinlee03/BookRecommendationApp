@@ -1,0 +1,71 @@
+import json
+import pandas as pd
+from flask import Flask, request, render_template_string
+from pyngrok import ngrok
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import threading
+
+# Load JSON as object, not line-by-line
+with open("book_snippets.json", "r", encoding="utf-8") as f:
+    data_json = json.load(f)
+
+# Convert to DataFrame
+df = pd.DataFrame({'title': data_json['title']})
+
+# Generate dummy descriptions (if none present)
+df['description'] = df['title'].apply(lambda x: f"A book titled {x}")
+
+# TF-IDF + Similarity
+tfidf = TfidfVectorizer(stop_words='english')
+tfidf_matrix = tfidf.fit_transform(df['description'])
+cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
+
+# Recommendation function
+def recommend_books(title):
+    idx = df.index[df['title'] == title].tolist()
+    if not idx:
+        return ['Book not found. Try another title.']
+    idx = idx[0]
+    sim_scores = list(enumerate(cosine_sim[idx]))
+    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
+    sim_indices = [i for i, _ in sim_scores[1:4]]
+    return df['title'].iloc[sim_indices].tolist()
+
+# Flask Web App
+app = Flask(__name__)
+html = """
+<h2>Book Recommendation System</h2>
+<form method="post">
+  <label>Enter a book title:</label><br>
+  <input type="text" name="title" required>
+  <input type="submit" value="Get Recommendations">
+</form>
+{% if recommendations %}
+<h3>Recommendations:</h3>
+<ul>
+{% for book in recommendations %}
+  <li>{{ book }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+"""
+
+@app.route("/", methods=["GET", "POST"])
+def home():
+    recommendations = []
+    if request.method == "POST":
+        title = request.form.get("title")
+        recommendations = recommend_books(title)
+    return render_template_string(html, recommendations=recommendations)
+
+# Run Flask + ngrok
+def run_app():
+    app.run()
+
+thread = threading.Thread(target=run_app)
+thread.start()
+
+ngrok.set_auth_token("2wp5vJWBKWioQYfjdHFYHhWrXWw_3NdLWgeuMLf92iEFQPNr9")
+public_url = ngrok.connect(5000)
+print("🔗 Open your app here:", public_url)
