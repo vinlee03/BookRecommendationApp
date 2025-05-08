@@ -1,71 +1,89 @@
-import json
-import pandas as pd
 from flask import Flask, request, render_template_string
 from pyngrok import ngrok
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+import pandas as pd
 import threading
 
-# Load JSON as object, not line-by-line
-with open("book_snippets.json", "r", encoding="utf-8") as f:
-    data_json = json.load(f)
+# Set up ngrok
+ngrok.set_auth_token("2wp5vJWBKWioQYfjdHFYHhWrXWw_3NdLWgeuMLf92iEFQPNr9")
 
-# Convert to DataFrame
-df = pd.DataFrame({'title': data_json['title']})
+# Load processed dataset
+books = pd.read_json("book_snippets.json")
 
-# Generate dummy descriptions (if none present)
-df['description'] = df['title'].apply(lambda x: f"A book titled {x}")
+# Dummy data: book recommendations by genre
+recommendation_data = {
+    'Horror': ['Dracula', 'Frankenstein', 'The Shining'],
+    'Comedy': ['Good Omens', 'The Hitchhiker’s Guide to the Galaxy', 'Bossypants'],
+    'Action': ['The Bourne Identity', 'Die Hard: Year One', 'The Hunger Games'],
+    'Science Fiction': ['Dune', 'Ender’s Game', 'Neuromancer'],
+    'Nonfiction': ['Sapiens', 'Educated', 'The Immortal Life of Henrietta Lacks']
+}
 
-# TF-IDF + Similarity
-tfidf = TfidfVectorizer(stop_words='english')
-tfidf_matrix = tfidf.fit_transform(df['description'])
-cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
-
-# Recommendation function
-def recommend_books(title):
-    idx = df.index[df['title'] == title].tolist()
-    if not idx:
-        return ['Book not found. Try another title.']
-    idx = idx[0]
-    sim_scores = list(enumerate(cosine_sim[idx]))
-    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
-    sim_indices = [i for i, _ in sim_scores[1:4]]
-    return df['title'].iloc[sim_indices].tolist()
-
-# Flask Web App
+# Flask setup
 app = Flask(__name__)
-html = """
-<h2>Book Recommendation System</h2>
-<form method="post">
-  <label>Enter a book title:</label><br>
-  <input type="text" name="title" required>
-  <input type="submit" value="Get Recommendations">
-</form>
-{% if recommendations %}
-<h3>Recommendations:</h3>
-<ul>
-{% for book in recommendations %}
-  <li>{{ book }}</li>
-{% endfor %}
-</ul>
-{% endif %}
+
+# HTML template
+html_template = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Genre-Based Book Recommender</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; background-color: #f4f4f4; }
+        label { display: block; margin-top: 15px; }
+        .slider-value { font-weight: bold; margin-left: 10px; }
+    </style>
+</head>
+<body>
+    <h2>Search Book Title</h2>
+    <form method="POST">
+        <input type="text" name="search_title" placeholder="Search for a book title" style="width: 100%; padding: 8px; margin-bottom: 20px;">
+
+        <h2>Rate Your Genre Preferences (1-5)</h2>
+        {% for genre in genres %}
+        <label>{{ genre }}:
+            <input type="range" name="{{ genre }}" min="1" max="5" value="3" oninput="document.getElementById('{{ genre }}_val').innerText = this.value">
+            <span id="{{ genre }}_val">3</span>
+        </label>
+        {% endfor %}
+        <br>
+        <input type="submit" value="Get Book Recommendations">
+    </form>
+
+    {% if search_title %}
+    <p><strong>Search Title:</strong> {{ search_title }}</p>
+    {% endif %}
+
+    {% if recommendations %}
+    <h3>Recommendations Based on Your Preferences:</h3>
+    <ul>
+        {% for rec in recommendations %}
+        <li>{{ rec }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</body>
+</html>
 """
 
 @app.route("/", methods=["GET", "POST"])
 def home():
+    genres = list(recommendation_data.keys())
     recommendations = []
+    search_title = ""
     if request.method == "POST":
-        title = request.form.get("title")
-        recommendations = recommend_books(title)
-    return render_template_string(html, recommendations=recommendations)
+        search_title = request.form.get("search_title", "")
+        for genre in genres:
+            try:
+                rating = int(request.form.get(genre, 0))
+                if rating >= 3:
+                    recommendations.extend(recommendation_data[genre])
+            except ValueError:
+                pass
+    return render_template_string(html_template, genres=genres, recommendations=recommendations, search_title=search_title)
 
-# Run Flask + ngrok
-def run_app():
-    app.run()
+# Launch Flask in background
+threading.Thread(target=lambda: app.run()).start()
 
-thread = threading.Thread(target=run_app)
-thread.start()
-
-ngrok.set_auth_token("2wp5vJWBKWioQYfjdHFYHhWrXWw_3NdLWgeuMLf92iEFQPNr9")
-public_url = ngrok.connect(5000)
-print("🔗 Open your app here:", public_url)
+# Expose via ngrok
+print("🔗 Open your app here:", ngrok.connect(5000))
