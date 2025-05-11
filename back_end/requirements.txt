@@ -1,0 +1,22 @@
+# API Framework
+fastapi
+uvicorn[standard]
+
+# Data Handling
+pandas
+numpy
+scikit-learn
+scipy
+
+# ML Models
+lightfm  # for collaborative filtering
+joblib   # for model saving/loading
+
+# Content-Based Filtering
+sentence-transformers
+transformers
+
+# CORS for frontend-backend connection
+python-multipart
+aiofiles
+fastapi[all]
