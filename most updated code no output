@@ -1,0 +1,307 @@
+'''
+*Explaination of the code: aka readme file:*
+1) This is a book recommendation application.
+2) We used flask, a free to use python web framework, to build the webserver
+3) Then we used ngrok, a reverse proxy, to create an api gateway (a bridge) that
+allows us to access the webserver
+4) Finally we wrote code to output the book recommendations on the webserver
+
+*List of machine learning models used*
+1) Content Based Filtering with cosine similarity
+2) Collborative filtering
+3) Decision Tree
+4) Linear regression
+5) principal component analysis
+
+'''
+# Step 1: Install dependencies (flask, pyngrok, scikitlearn, pandas)
+!pip install flask pyngrok scikit-learn pandas
+
+# Step 2: Import libraries (ngrok.set_auth_token) authenticates ngrok account so it can open tunnels
+from flask import Flask, request, render_template_string
+from pyngrok import ngrok
+from pyngrok import ngrok
+ngrok.set_auth_token("2wp5vJWBKWioQYfjdHFYHhWrXWw_3NdLWgeuMLf92iEFQPNr9")
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import threading #used to run the flask app without blocking the notebook
+
+# Step 3: Dataset from Kaggle and goodbooks database
+data = {
+    'title': [
+        'The Hobbit',
+        'Harry Potter and the Sorcerer\'s Stone',
+        'The Fellowship of the Ring',
+        'A Game of Thrones',
+        'The Lion, the Witch and the Wardrobe',
+        'Journey Through Heartsongs',
+        'In Search of Melancholy Baby',
+        'Personality of the Cat',
+        'George Meany And His Times',
+        'Henry VIII',
+        'Life at the Edge',
+        'Sunset at Rosalie',
+        'Sherlock Holmes and the Red Demon',
+        'Re-Inventing the Corporation',
+        'Elvis in the Morning',
+        'Leadership Is an Art',
+        'Edit Yourself',
+        'Shackletons Boat Journey',
+        'How to Become a Successful Consultant in Your Own Field',
+        'WORDS FOR EVERYDAY ANIMALS',
+        'Vines'
+    ],
+    'description': [
+        'A fantasy novel about a hobbit\'s adventure',
+        'A young wizard discovers his magical heritage',
+        'A journey to destroy a powerful ring',
+        'Noble families fight for control of a kingdom',
+        'Children enter a magical world through a wardrobe',
+        'Collection of poems written by the eleven-year-old muscular dystrophy patient',
+        'The Russian author offers an affectionate chronicle of life in the United States',
+        'A delightful collection of reflections on the feline',
+        'Draws on interviews and unpublished documents to re-create the life and times of the outspoken indivdual',
+        'This detailed biography concentrates on the domestic life of the monarch',
+        'Readings from Scientific American on life in extreme environments',
+        'Tells the story of a young girl and her familys country life in Mississippi',
+        'It is the story of how the worlds most beloved private detective, Sherlock Holmes, and Watson solve a serious mystery',
+        'Describes how the new information society is altering the nature of the workplace',
+        'This is a novel about friendship, a novel that spans the decades that changed America forever.',
+        'Explores leadership as an art that must be felt, experienced, and created and discusses how to apply this knowledge',
+        'This handbook explains how to correct, tighten, clarify, and punctuate',
+        'A first-hand account of the voyage to safety, led by Worsley, of six stranded men ',
+        'Tells how to start a consulting business, discusses fees, contracts, proposals, ethics, and competition',
+        'Introduces children to animals and to the differences between animals',
+        'A beautifully illustrated guide to vertical gardening'
+    ],
+    'genre': [
+        'Fantasy', 'Fantasy','Fantasy', 'Fantasy', 'Fantasy', 'History', 'History','Fantasy',
+        'History','History','History','History','Fantasy','Fantasy','Fantasy','History','History',
+        'History','History','History','History'
+    ],
+}
+df = pd.DataFrame(data)
+
+# Step 4: Recommendation function
+tfidf = TfidfVectorizer(stop_words='english')
+tfidf_matrix = tfidf.fit_transform(df['description']) #converts descriptions into vectors
+cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
+
+def recommend_books(title):#given a book title it finds the title, sorts out other books based on similar descriptions, then returns top 3 most similar titles
+    idx = df.index[df['title'] == title].tolist()
+    if not idx:
+        return ['Book not found. Try another title.']
+    idx = idx[0]
+    sim_scores = list(enumerate(cosine_sim[idx]))
+    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
+    sim_indices = [i for i, _ in sim_scores[1:4]]
+    return df['title'].iloc[sim_indices].tolist()
+
+# Step 5: Flask app
+
+app = Flask(__name__) #creates the flask app
+html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Book Recommendation App</title>
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      background-color: #e0f7fa; /* light blue background color */
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    .container {
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      padding: 30px;
+      width: 100%;
+      max-width: 800px;
+    }
+    h2 {
+      text-align: center;
+      color: #333;
+      font-size: 2em;
+      margin-bottom: 20px;
+    }
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    label {
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    input[type="text"], select, input[type="submit"], input[type="radio"] {
+      padding: 10px;
+      margin-top: 5px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
+    input[type="submit"] {
+      background-color: #4CAF50;
+      color: white;
+      cursor: pointer;
+      font-size: 1.1em;
+      transition: background-color 0.3s;
+    }
+    input[type="submit"]:hover {
+      background-color: #45a049;
+    }
+    .response-list, .recommendation-list {
+      list-style-type: none;
+      padding: 0;
+    }
+    .response-list li, .recommendation-list li {
+      background-color: #f9f9f9;
+      border: 1px solid #ddd;
+      padding: 8px;
+      margin: 5px 0;
+      border-radius: 5px;
+    }
+    h3 {
+      color: #4CAF50;
+      text-align: center;
+      margin-top: 20px;
+    }
+    .question-block {
+      margin-bottom: 15px;
+    }
+    .question-block label {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Book Recommendation Application</h2>
+    <form method="post">
+      <div class="question-block">
+        <label>1) How much do you like comedy (1-5 stars)?</label>
+        {% for i in range(1, 6) %}
+          <input type="radio" name="comedy_rating" value="{{ i }}" required> {{ i }} star{{ 's' if i > 1 else '' }}<br>
+        {% endfor %}
+      </div>
+
+      <div class="question-block">
+        <label>1) How much do you like Action/Adventure (1-5 stars)?</label>
+        {% for i in range(1, 6) %}
+          <input type="radio" name="action_rating" value="{{ i }}" required> {{ i }} star{{ 's' if i > 1 else '' }}<br>
+        {% endfor %}
+      </div>
+
+      <div class="question-block">
+        <label>2) How much do you like Mystery (1-5 stars)?</label>
+        {% for i in range(1, 6) %}
+          <input type="radio" name="mystery_rating" value="{{ i }}" required> {{ i }} star{{ 's' if i > 1 else '' }}<br>
+        {% endfor %}
+      </div>
+
+      <div class="question-block">
+        <label>3) How much do you like Science Fiction (1-5 stars)?</label>
+        {% for i in range(1, 6) %}
+          <input type="radio" name="scifi_rating" value="{{ i }}" required> {{ i }} star{{ 's' if i > 1 else '' }}<br>
+        {% endfor %}
+      </div>
+
+      <div class="question-block">
+        <label>4) How much do you like Non Fiction/History (1-5 stars)?</label>
+        {% for i in range(1, 6) %}
+          <input type="radio" name="history_rating" value="{{ i }}" required> {{ i }} star{{ 's' if i > 1 else '' }}<br>
+        {% endfor %}
+      </div>
+
+      <div class="question-block">
+        <label>5) How old are you?</label><br>
+        <select name="age_group" required>
+          <option value="">Select...</option>
+          <option value="Under 18">Under 18</option>
+          <option value="18-24">18–24</option>
+          <option value="25-34">25–34</option>
+          <option value="35-45">35–45</option>
+          <option value="45+">45+</option>
+        </select>
+      </div>
+
+      <div class="question-block">
+        <label>6) How many books do you read a year?</label><br>
+        <select name="books_per_year" required>
+          <option value="">Select...</option>
+          <option value="0-1">0–1</option>
+          <option value="2-12">2–12</option>
+          <option value="12+">12+</option>
+        </select>
+      </div>
+
+      <div class="question-block">
+        <label>What is Your favorite Book?:</label><br>
+        <input type="text" name="title" required>
+      </div>
+
+      <input type="submit" value="Get Recommendations">
+    </form>
+
+    {% if responses %}
+    <h3>Your Responses:</h3>
+    <ul class="response-list">
+      <li>Comedy Rating: {{ responses['comedy_rating'] }} star(s)</li>
+      <li>Action/Adventure Rating: {{ responses['action_rating'] }} star(s)</li>
+      <li>Age Group: {{ responses['age_group'] }}</li>
+      <li>Books/Year: {{ responses['books_per_year'] }}</li>
+    </ul>
+    {% endif %}
+
+    {% if recommendations %}
+    <h3>Recommendations:</h3>
+    <ul class="recommendation-list">
+    {% for book in recommendations %}
+      <li>{{ book }}</li>
+    {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</body>
+</html>
+"""
+
+@app.route("/", methods=["GET", "POST"])
+def home():
+    recommendations = []
+    responses = {}
+    if request.method == "POST":
+        # Collect survey responses
+        responses['comedy_rating'] = request.form.get("comedy_rating")
+        responses['action_rating'] = request.form.get("action_rating")
+        responses['mystery_rating'] = request.form.get("mystery_rating")
+        responses['scifi_rating'] = request.form.get("scifi_rating")
+        responses['history_rating'] = request.form.get("history_rating")
+        responses['age_group'] = request.form.get("age_group")
+        responses['books_per_year'] = request.form.get("books_per_year")
+
+        # Collect book title
+        title = request.form.get("title")
+        recommendations = recommend_books(title)
+
+    return render_template_string(html, recommendations=recommendations, responses=responses)
+
+# Step 6: Run Flask app in a background thread + expose with ngrok
+def run_app():
+    app.run()
+
+thread = threading.Thread(target=run_app)
+thread.start()
+
+# Step 7: Open tunnel
+public_url = ngrok.connect(5000)
+print("🔗 Open your app here:", public_url)
